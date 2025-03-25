@@ -22,7 +22,7 @@ const userSchema = mongoose.Schema({
   password: {
     type: String,
     required: true,
-    minlength: 6,
+    minlength: 8,
     select: false,
   },
   confirmPassword: {
@@ -35,13 +35,15 @@ const userSchema = mongoose.Schema({
       message: 'Passwords do not match!',
     },
   },
-  profileImage: {
+  profilePicture: {
     type: String,
     default: function () {
       return `https://avatar.iran.liara.run/public/boy?username=${this.username}`;
     },
   },
-
+  followersCount: { type: Number, default: 0 },
+  followingCount: { type: Number, default: 0 },
+  postsCount: { type: Number, default: 0 },
   blocked: [
     {
       type: mongoose.Schema.Types.ObjectId,
@@ -58,4 +60,10 @@ userSchema.pre('save', async function (next) {
   next();
 });
 
+userSchema.methods.checkPassword = async function (
+  candidatePassword,
+  originalPassword
+) {
+  return await bcrypt.compare(candidatePassword, originalPassword);
+};
 module.exports = mongoose.model('User', userSchema);
