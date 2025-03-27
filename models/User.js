@@ -14,6 +14,16 @@ const userSchema = mongoose.Schema({
     lowercase: true,
     trim: true,
   },
+  age: {
+    type: Number,
+  },
+  bio: {
+    type: String,
+  },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other'],
+  },
   email: {
     type: String,
     required: true,
@@ -60,10 +70,7 @@ userSchema.pre('save', async function (next) {
   next();
 });
 
-userSchema.methods.checkPassword = async function (
-  candidatePassword,
-  originalPassword
-) {
-  return await bcrypt.compare(candidatePassword, originalPassword);
+userSchema.methods.checkPassword = async function (candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 module.exports = mongoose.model('User', userSchema);

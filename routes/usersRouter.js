@@ -1,9 +1,19 @@
 const express = require('express');
-
+const User = require('../models/User');
 const router = express.Router();
 
-router.get('/:username', (req, res) => {
-  res.send('userProfile');
+router.get('/:username', async (req, res, next) => {
+  const username = req.params.username;
+  const user = await User.findOne({ username }).select('-email -blocked');
+  if (!user) {
+    return next(new AppError('User not found', 404));
+  }
+  res.json({
+    status: 'success',
+    data: {
+      user,
+    },
+  });
 });
 
 router.post('/:username/toggle-block', (req, res) => {
