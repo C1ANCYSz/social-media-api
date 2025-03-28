@@ -19,21 +19,45 @@ router.get('/', async (req, res) => {
   });
 });
 
-router.get('/conversations', async (req, res) => {
-  const conversations = await Conversation.find({ members: req.user._id });
-  if (!conversations) {
-    return next(new AppError('No conversations found', 404));
+router.get('/conversations', async (req, res, next) => {
+  const conversations = await Conversation.find({ members: req.user._id })
+    .populate('members', 'name profilePicture')
+    .populate('lastMessage', 'text createdAt');
+
+  if (!conversations.length) {
+    return res.status(200).json({
+      success: true,
+      results: 0,
+      conversations: [],
+    });
   }
+
+  const formattedConversations = conversations.map((conversation) => {
+    const otherUser = conversation.members.find(
+      (member) => !member._id.equals(req.user._id)
+    );
+
+    return {
+      lastMessage: conversation.lastMessage?.content || 'No messages yet',
+      otherUserName: otherUser?.name || 'Unknown',
+      otherUserImage:
+        otherUser?.profilePicture ||
+        'https://avatar.iran.liara.run/public/boy?username=clancy',
+    };
+  });
+
   res.json({
-    status: 'success',
-    results: conversations.length,
-    data: {
-      conversations,
-    },
+    success: true,
+    results: formattedConversations.length,
+    conversations: formattedConversations,
   });
 });
+
 router.get('/following', async (req, res, next) => {
-  const following = await Follow.find({ follower: req.user._id });
+  const following = await Follow.find({ follower: req.user._id }).populate({
+    path: 'following',
+    select: 'name profilePicture',
+  });
 
   if (!following) {
     return next(new AppError('No following found', 404));
@@ -48,7 +72,10 @@ router.get('/following', async (req, res, next) => {
 });
 
 router.get('/followers', async (req, res) => {
-  const followers = await Follow.find({ follower: req.user._id });
+  const followers = await Follow.find({ following: req.user._id }).populate({
+    path: 'follower',
+    select: 'name profilePicture',
+  });
 
   if (!followers) {
     return next(new AppError('No followers found', 404));

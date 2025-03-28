@@ -6,10 +6,111 @@ const Comment = require('../models/Comment');
 const Reaction = require('../models/Reaction');
 const mongoose = require('mongoose');
 const AppError = require('../utils/AppError');
+const { checkBlockedForPosts } = require('../middlewares/checkBlocked');
 
 require('express-async-errors');
 
 const router = express.Router();
+
+router.delete('/:id', async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  const post = await Post.findOne({ _id: req.params.id }).session(session);
+  console.log(post);
+  if (!post) {
+    await session.abortTransaction();
+    session.endSession();
+    return next(new AppError('Post not found', 404));
+  }
+
+  if (post.postedBy.toString() !== req.user._id.toString()) {
+    await session.abortTransaction();
+    session.endSession();
+    return next(
+      new AppError('You are not authorized to delete this post', 403)
+    );
+  }
+
+  await Promise.all([
+    Post.deleteOne({ _id: post._id }).session(session),
+    Conversation.deleteMany({ post: post._id }).session(session),
+    Comment.deleteMany({ post: post._id }).session(session),
+  ]);
+
+  await session.commitTransaction();
+  session.endSession();
+
+  res.json({ success: true, message: 'Post deleted successfully' });
+});
+
+router.delete('/:id/comments/:commentId', async (req, res, next) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { id, commentId } = req.params;
+
+    const comment = await Comment.findOne({ _id: commentId }).session(session);
+
+    console.log(comment);
+    if (!comment) {
+      throw new AppError(
+        'Comment not found or does not belong to this post',
+        404
+      );
+    }
+
+    if (comment.user.toString() !== req.user._id.toString()) {
+      throw new AppError('You are not authorized to delete this comment', 403);
+    }
+
+    await Comment.deleteOne({ _id: commentId }).session(session);
+    const deletedReplies = await Comment.deleteMany({
+      replyingTo: commentId,
+    }).session(session);
+
+    if (comment.replyingTo === null) {
+      await Post.findByIdAndUpdate(id, {
+        $inc: { commentsCount: -(deletedReplies.deletedCount + 1) },
+      }).session(session);
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    res.json({ success: true, message: 'Comment deleted successfully' });
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+    next(error);
+  }
+});
+
+router.post('/create-post', async (req, res, next) => {
+  const { content } = req.body;
+  const media = req.body?.media;
+
+  if (!content) {
+    return next(new AppError('Post content is required', 400));
+  }
+
+  const post = await Post.create({
+    postedBy: req.user._id,
+    content,
+    media: media || null,
+    user: req.user._id,
+  });
+
+  res.json({
+    sucess: true,
+    data: {
+      post,
+    },
+  });
+});
+
+router.use(checkBlockedForPosts);
 
 router.get('/:id', async (req, res, next) => {
   const post = await Post.findById(req.params.id);
@@ -120,29 +221,6 @@ router.get('/:id/reactions', async (req, res, next) => {
   });
 });
 
-router.post('/create-post', async (req, res, next) => {
-  const { content } = req.body;
-  const media = req.body?.media;
-
-  if (!content) {
-    return next(new AppError('Post content is required', 400));
-  }
-
-  const post = await Post.create({
-    postedBy: req.user._id,
-    content,
-    media: media || null,
-    user: req.user._id,
-  });
-
-  res.json({
-    sucess: true,
-    data: {
-      post,
-    },
-  });
-});
-
 router.post('/:id/comment', async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -240,85 +318,6 @@ router.post('/:id/toggle-reaction', async (req, res, next) => {
   ]);
 
   res.json({ success: true, data: { reaction: newReaction } });
-});
-
-router.get('/', (req, res) => {
-  res.send('get all posts (pagination and limits apply)');
-});
-
-router.delete('/:id', async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  const post = await Post.findOne({ _id: req.params.id }).session(session);
-  console.log(post);
-  if (!post) {
-    await session.abortTransaction();
-    session.endSession();
-    return next(new AppError('Post not found', 404));
-  }
-
-  if (post.postedBy.toString() !== req.user._id.toString()) {
-    await session.abortTransaction();
-    session.endSession();
-    return next(
-      new AppError('You are not authorized to delete this post', 403)
-    );
-  }
-
-  await Promise.all([
-    Post.deleteOne({ _id: post._id }).session(session),
-    Conversation.deleteMany({ post: post._id }).session(session),
-    Comment.deleteMany({ post: post._id }).session(session),
-  ]);
-
-  await session.commitTransaction();
-  session.endSession();
-
-  res.json({ success: true, message: 'Post deleted successfully' });
-});
-
-router.delete('/:id/comments/:commentId', async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
-  try {
-    const { id, commentId } = req.params;
-
-    const comment = await Comment.findOne({ _id: commentId }).session(session);
-
-    console.log(comment);
-    if (!comment) {
-      throw new AppError(
-        'Comment not found or does not belong to this post',
-        404
-      );
-    }
-
-    if (comment.user.toString() !== req.user._id.toString()) {
-      throw new AppError('You are not authorized to delete this comment', 403);
-    }
-
-    await Comment.deleteOne({ _id: commentId }).session(session);
-    const deletedReplies = await Comment.deleteMany({
-      replyingTo: commentId,
-    }).session(session);
-
-    if (comment.replyingTo === null) {
-      await Post.findByIdAndUpdate(id, {
-        $inc: { commentsCount: -(deletedReplies.deletedCount + 1) },
-      }).session(session);
-    }
-
-    await session.commitTransaction();
-    session.endSession();
-
-    res.json({ success: true, message: 'Comment deleted successfully' });
-  } catch (error) {
-    await session.abortTransaction();
-    session.endSession();
-    next(error);
-  }
 });
 
 module.exports = router;
