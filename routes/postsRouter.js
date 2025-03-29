@@ -110,9 +110,7 @@ router.post('/create-post', async (req, res, next) => {
   });
 });
 
-router.use(checkBlockedForPosts);
-
-router.get('/:id', async (req, res, next) => {
+router.get('/:id', checkBlockedForPosts, async (req, res, next) => {
   const post = await Post.findById(req.params.id);
 
   if (!post) {
@@ -127,7 +125,7 @@ router.get('/:id', async (req, res, next) => {
   });
 });
 
-router.get('/:id/comments', async (req, res, next) => {
+router.get('/:id/comments', checkBlockedForPosts, async (req, res, next) => {
   const post = await Post.findById(req.params.id);
 
   if (!post) {
@@ -204,7 +202,7 @@ router.get('/:id/comments', async (req, res, next) => {
   });
 });
 
-router.get('/:id/reactions', async (req, res, next) => {
+router.get('/:id/reactions', checkBlockedForPosts, async (req, res, next) => {
   const post = await Post.findById(req.params.id);
 
   if (!post) {
@@ -221,7 +219,7 @@ router.get('/:id/reactions', async (req, res, next) => {
   });
 });
 
-router.post('/:id/comment', async (req, res, next) => {
+router.post('/:id/comment', checkBlockedForPosts, async (req, res, next) => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -252,72 +250,80 @@ router.post('/:id/comment', async (req, res, next) => {
   });
 });
 
-router.post('/:id/comments/:commentId/reply', async (req, res, next) => {
-  const { text } = req.body;
-  const media = req.body?.media;
-  const { commentId, id } = req.params;
+router.post(
+  '/:id/comments/:commentId/reply',
+  checkBlockedForPosts,
+  async (req, res, next) => {
+    const { text } = req.body;
+    const media = req.body?.media;
+    const { commentId, id } = req.params;
 
-  if (!text) {
-    return next(new AppError('Reply content is required', 400));
-  }
+    if (!text) {
+      return next(new AppError('Reply content is required', 400));
+    }
 
-  const comment = await Comment.findOne({ _id: commentId, post: id });
+    const comment = await Comment.findOne({ _id: commentId, post: id });
 
-  if (!comment) {
-    return next(
-      new AppError('Comment not found or does not belong to this post', 404)
-    );
-  }
+    if (!comment) {
+      return next(
+        new AppError('Comment not found or does not belong to this post', 404)
+      );
+    }
 
-  const newComment = await Comment.create({
-    post: null,
-    user: req.user._id,
-    text,
-    replyingTo: comment._id,
-    media: media || null,
-  });
+    const newComment = await Comment.create({
+      post: null,
+      user: req.user._id,
+      text,
+      replyingTo: comment._id,
+      media: media || null,
+    });
 
-  res.json({
-    success: true,
-    data: {
-      reply: newComment,
-    },
-  });
-});
-
-router.post('/:id/toggle-reaction', async (req, res, next) => {
-  const { id } = req.params;
-  const { reaction } = req.body;
-
-  if (!reaction) {
-    return next(new AppError('Reaction is required', 400));
-  }
-
-  const validReactions = ['like', 'love', 'haha', 'sad', 'angry'];
-  if (!validReactions.includes(reaction)) {
-    return next(new AppError('Invalid reaction type', 400));
-  }
-
-  const isReacted = await Reaction.findOne({ post: id, user: req.user._id });
-
-  if (isReacted) {
-    await Promise.all([
-      Reaction.deleteOne({ _id: isReacted._id }),
-      Post.findByIdAndUpdate(id, { $inc: { reactionsCount: -1 } }),
-    ]);
-
-    return res.json({
+    res.json({
       success: true,
-      message: 'Reaction deleted successfully',
+      data: {
+        reply: newComment,
+      },
     });
   }
+);
 
-  const [newReaction] = await Promise.all([
-    Reaction.create({ post: id, user: req.user._id, reaction }),
-    Post.findByIdAndUpdate(id, { $inc: { reactionsCount: 1 } }),
-  ]);
+router.post(
+  '/:id/toggle-reaction',
+  checkBlockedForPosts,
+  async (req, res, next) => {
+    const { id } = req.params;
+    const { reaction } = req.body;
 
-  res.json({ success: true, data: { reaction: newReaction } });
-});
+    if (!reaction) {
+      return next(new AppError('Reaction is required', 400));
+    }
+
+    const validReactions = ['like', 'love', 'haha', 'sad', 'angry'];
+    if (!validReactions.includes(reaction)) {
+      return next(new AppError('Invalid reaction type', 400));
+    }
+
+    const isReacted = await Reaction.findOne({ post: id, user: req.user._id });
+
+    if (isReacted) {
+      await Promise.all([
+        Reaction.deleteOne({ _id: isReacted._id }),
+        Post.findByIdAndUpdate(id, { $inc: { reactionsCount: -1 } }),
+      ]);
+
+      return res.json({
+        success: true,
+        message: 'Reaction deleted successfully',
+      });
+    }
+
+    const [newReaction] = await Promise.all([
+      Reaction.create({ post: id, user: req.user._id, reaction }),
+      Post.findByIdAndUpdate(id, { $inc: { reactionsCount: 1 } }),
+    ]);
+
+    res.json({ success: true, data: { reaction: newReaction } });
+  }
+);
 
 module.exports = router;

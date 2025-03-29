@@ -2,6 +2,7 @@ const express = require('express');
 const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const mongoose = require('mongoose');
+const User = require('../models/User');
 const AppError = require('../utils/AppError');
 require('express-async-errors');
 
@@ -57,9 +58,7 @@ router.post('/:userId', async (req, res, next) => {
   }
 
   if (userId === req.user._id.toString()) {
-    return next(
-      new AppError('You cannot create a conversation with yourself', 400)
-    );
+    return next(new AppError('You cannot Message yourself', 400));
   }
 
   const session = await mongoose.startSession();
@@ -81,37 +80,13 @@ router.post('/:userId', async (req, res, next) => {
   await session.commitTransaction();
   session.endSession();
 
+  console.log(conversation._id);
+
   res.status(200).json({ conversation });
 });
 
 router.delete('/:id', async (req, res, next) => {
-  const { meOnly } = req.body;
   const { id } = req.params;
-
-  if (meOnly) {
-    const conversation = await Conversation.findById(id);
-    if (!conversation) {
-      return next(new AppError('Conversation not found', 404));
-    }
-
-    if (
-      !conversation.members.some(
-        (member) => member.toString() === req.user._id.toString()
-      )
-    ) {
-      return next(
-        new AppError('Unauthorized access to this conversation', 403)
-      );
-    }
-
-    await Conversation.findByIdAndUpdate(
-      id,
-      { $pull: { members: req.user._id } },
-      { new: true }
-    );
-
-    return res.json({ success: true, message: 'You left the conversation.' });
-  }
 
   const session = await mongoose.startSession();
   session.startTransaction();

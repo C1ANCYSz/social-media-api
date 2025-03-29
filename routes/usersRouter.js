@@ -5,6 +5,7 @@ const Post = require('../models/Post');
 const Follow = require('../models/Follow');
 const { checkBlockedForUsers } = require('../middlewares/checkBlocked');
 const AppError = require('../utils/AppError');
+const mongoose = require('mongoose');
 
 const router = express.Router();
 
@@ -20,6 +21,10 @@ router.post('/:username/toggle-block', async (req, res, next) => {
 
   if (me._id.equals(userToBlock._id)) {
     return next(new AppError("You can't block yourself", 400));
+  }
+
+  if (userToBlock.blocked.includes(me._id)) {
+    return next(new AppError('This user has blocked you', 403));
   }
 
   const isBlocked = me.blocked.includes(userToBlock._id);
@@ -78,33 +83,54 @@ router.post(
   '/toggle-follow/:username',
   checkBlockedForUsers,
   async (req, res, next) => {
-    //add a check for blocked users
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
     const { username } = req.params;
-    const userToFollow = await User.findOne({ username });
 
-    if (!userToFollow) {
-      return next(new AppError('User not found', 404));
-    }
+    const userToFollow = await User.findOne({ username }).session(session);
+    if (!userToFollow) throw new AppError('User not found', 404);
 
-    const me = req.user;
+    const me = await User.findById(req.user._id).session(session);
+    if (me._id.equals(userToFollow._id))
+      throw new AppError("You can't follow yourself", 400);
 
-    if (me._id.equals(userToFollow._id)) {
-      return next(new AppError("You can't follow yourself", 400));
-    }
-
-    const existingFollow = await Follow.findOne({
+    const existingFollow = await Follow.findOneAndDelete({
       follower: me._id,
       following: userToFollow._id,
-    });
+    }).session(session);
 
     if (existingFollow) {
-      await Follow.deleteOne({ _id: existingFollow._id });
-      return res.json({ success: true, message: 'Unfollowed successfully' });
+      await User.updateOne(
+        { _id: me._id },
+        { $inc: { followingCount: -1 } }
+      ).session(session);
+      await User.updateOne(
+        { _id: userToFollow._id },
+        { $inc: { followersCount: -1 } }
+      ).session(session);
     } else {
-      await Follow.create({ follower: me._id, following: userToFollow._id });
-      return res.json({ success: true, message: 'Followed successfully' });
+      await Follow.create([{ follower: me._id, following: userToFollow._id }], {
+        session,
+      });
+
+      await User.updateOne(
+        { _id: me._id },
+        { $inc: { followingCount: 1 } }
+      ).session(session);
+      await User.updateOne(
+        { _id: userToFollow._id },
+        { $inc: { followersCount: 1 } }
+      ).session(session);
     }
+
+    await session.commitTransaction();
+    res.json({
+      success: true,
+      message: existingFollow
+        ? 'Unfollowed successfully'
+        : 'Followed successfully',
+    });
   }
 );
 

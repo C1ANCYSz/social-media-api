@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 
 router.get('/conversations', async (req, res, next) => {
   const conversations = await Conversation.find({ members: req.user._id })
-    .populate('members', 'name profilePicture')
+    .populate('members', 'username profilePicture')
     .populate('lastMessage', 'text createdAt');
 
   if (!conversations.length) {
@@ -38,11 +38,12 @@ router.get('/conversations', async (req, res, next) => {
     );
 
     return {
-      lastMessage: conversation.lastMessage?.content || 'No messages yet',
-      otherUserName: otherUser?.name || 'Unknown',
+      _id: conversation._id,
+      otherUserName: otherUser?.username || 'Unknown',
       otherUserImage:
         otherUser?.profilePicture ||
         'https://avatar.iran.liara.run/public/boy?username=clancy',
+      lastMessage: conversation.lastMessage?.content || 'No messages yet',
     };
   });
 
