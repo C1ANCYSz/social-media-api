@@ -4,7 +4,7 @@ const validator = require('validator');
 
 const AppError = require('../utils/AppError');
 
-const User = require('./../models/User');
+const User = require('../models/User');
 
 require('express-async-errors');
 
